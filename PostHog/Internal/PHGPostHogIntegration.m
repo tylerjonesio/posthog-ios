@@ -13,9 +13,13 @@
 #import "PHGScreenPayload.h"
 #import "PHGAliasPayload.h"
 
-#if TARGET_OS_IOS
+#if TARGET_OS_IOS && !TARGET_OS_MACCATALYST
 #import <CoreTelephony/CTCarrier.h>
 #import <CoreTelephony/CTTelephonyNetworkInfo.h>
+#endif
+
+#if TARGET_OS_MACCATALYST
+@import IOKit;
 #endif
 
 NSString *const PHGPostHogDidSendRequestNotification = @"PostHogDidSendRequest";
@@ -32,12 +36,21 @@ NSString *const kPHGQueueFilename = @"posthog.queue.plist";
 
 static NSString *GetDeviceModel()
 {
+#if TARGET_OS_MACCATALYST
+    io_service_t service = IOServiceGetMatchingService(kIOMasterPortDefault, IOServiceMatching("IOPlatformExpertDevice"));
+    CFStringRef model = IORegistryEntryCreateCFProperty(service, CFSTR("model"), kCFAllocatorDefault, 0);
+    NSString *modelIdentifier = [[[NSString alloc] initWithData:(__bridge NSData *)model encoding:NSUTF8StringEncoding] stringByTrimmingCharactersInSet: NSCharacterSet.controlCharacterSet];
+    CFRelease(model);
+    IOObjectRelease(service);
+    return modelIdentifier;
+#else
     size_t size;
     sysctlbyname("hw.machine", NULL, &size, NULL, 0);
     char result[size];
     sysctlbyname("hw.machine", result, &size, NULL, 0);
     NSString *results = [NSString stringWithCString:result encoding:NSUTF8StringEncoding];
     return results;
+#endif
 }
 
 @interface PHGPostHogIntegration ()
@@ -114,7 +127,7 @@ static NSString *GetDeviceModel()
  * Ref: http://stackoverflow.com/questions/14238586/coretelephony-crash
  */
 
-#if TARGET_OS_IOS
+#if TARGET_OS_IOS && !TARGET_OS_MACCATALYST
 static CTTelephonyNetworkInfo *_telephonyNetworkInfo;
 #endif
 
@@ -134,13 +147,24 @@ static CTTelephonyNetworkInfo *_telephonyNetworkInfo;
     UIDevice *device = [UIDevice currentDevice];
 
     dict[@"$device_manufacturer"] = @"Apple";
-    dict[@"$device_type"] = @"ios";
     dict[@"$device_model"] = GetDeviceModel();
     dict[@"$device_id"] = self.configuration.shouldSendDeviceID ? [[device identifierForVendor] UUIDString] : nil;
+#if TARGET_OS_MACCATALYST
+    dict[@"$device_type"] = @"macos";
+    dict[@"$device_name"] = @"Mac";
+    dict[@"$os_name"] = @"macCatalyst";
+    NSOperatingSystemVersion version = [[NSProcessInfo processInfo] operatingSystemVersion];
+    NSString *versionString = [NSString stringWithFormat: @"%li.%li.%li",
+                               version.majorVersion,
+                               version.minorVersion,
+                               version.patchVersion];
+    dict[@"$os_version"] = versionString;
+#else
+    dict[@"$device_type"] = @"ios";
     dict[@"$device_name"] = [device model];
-
     dict[@"$os_name"] = device.systemName;
     dict[@"$os_version"] = device.systemVersion;
+#endif
 
     CGSize screenSize = [UIScreen mainScreen].bounds.size;
     dict[@"$screen_width"] = @(screenSize.width);
@@ -218,7 +242,7 @@ static CTTelephonyNetworkInfo *_telephonyNetworkInfo;
         context[@"$network_cellular"] = @NO;
     }
 
-#if TARGET_OS_IOS
+#if TARGET_OS_IOS && !TARGET_OS_MACCATALYST
     static dispatch_once_t networkInfoOnceToken;
     dispatch_once(&networkInfoOnceToken, ^{
         _telephonyNetworkInfo = [[CTTelephonyNetworkInfo alloc] init];
