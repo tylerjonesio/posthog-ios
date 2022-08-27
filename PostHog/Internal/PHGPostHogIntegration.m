@@ -37,7 +37,7 @@ NSString *const kPHGQueueFilename = @"posthog.queue.plist";
 static NSString *GetDeviceModel()
 {
 #if TARGET_OS_MACCATALYST
-    io_service_t service = IOServiceGetMatchingService(kIOMasterPortDefault, IOServiceMatching("IOPlatformExpertDevice"));
+    io_service_t service = IOServiceGetMatchingService(0, IOServiceMatching("IOPlatformExpertDevice"));
     CFStringRef model = IORegistryEntryCreateCFProperty(service, CFSTR("model"), kCFAllocatorDefault, 0);
     NSString *modelIdentifier = [[[NSString alloc] initWithData:(__bridge NSData *)model encoding:NSUTF8StringEncoding] stringByTrimmingCharactersInSet: NSCharacterSet.controlCharacterSet];
     CFRelease(model);
